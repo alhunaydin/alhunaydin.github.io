@@ -1,0 +1,1628 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title>JabRef references</title>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<script type="text/javascript">
+<!--
+// QuickSearch script for JabRef HTML export 
+// Version: 3.0
+//
+// Copyright (c) 2006-2011, Mark Schenk
+//
+// This software is distributed under a Creative Commons Attribution 3.0 License
+// http://creativecommons.org/licenses/by/3.0/
+//
+// Features:
+// - intuitive find-as-you-type searching
+//    ~ case insensitive
+//    ~ ignore diacritics (optional)
+//
+// - search with/without Regular Expressions
+// - match BibTeX key
+//
+
+// Search settings
+var searchAbstract = true;	// search in abstract
+var searchComment = true;	// search in comment
+
+var noSquiggles = true; 	// ignore diacritics when searching
+var searchRegExp = false; 	// enable RegExp searches
+
+
+if (window.addEventListener) {
+	window.addEventListener("load",initSearch,false); }
+else if (window.attachEvent) {
+	window.attachEvent("onload", initSearch); }
+
+function initSearch() {
+	// check for quick search table and searchfield
+	if (!document.getElementById('qs_table')||!document.getElementById('quicksearch')) { return; }
+
+	// load all the rows and sort into arrays
+	loadTableData();
+	
+	//find the query field
+	qsfield = document.getElementById('qs_field');
+
+	// previous search term; used for speed optimisation
+	prevSearch = '';
+
+	//find statistics location
+	stats = document.getElementById('stat');
+	setStatistics(-1);
+	
+	// set up preferences
+	initPreferences();
+
+	// shows the searchfield
+	document.getElementById('quicksearch').style.display = 'block';
+	document.getElementById('qs_field').onkeyup = quickSearch;
+}
+
+function loadTableData() {
+	// find table and appropriate rows
+	searchTable = document.getElementById('qs_table');
+	var allRows = searchTable.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+
+	// split all rows into entryRows and infoRows (e.g. abstract, comment, bibtex)
+	entryRows = new Array(); infoRows = new Array(); absRows = new Array(); revRows = new Array();
+
+	// get data from each row
+	entryRowsData = new Array(); absRowsData = new Array(); revRowsData = new Array(); 
+	
+	BibTeXKeys = new Array();
+	
+	for (var i=0, k=0, j=0; i<allRows.length;i++) {
+		if (allRows[i].className.match(/entry/)) {
+			entryRows[j] = allRows[i];
+			entryRowsData[j] = stripDiacritics(getTextContent(allRows[i]));
+			allRows[i].id ? BibTeXKeys[j] = allRows[i].id : allRows[i].id = 'autokey_'+j;
+			j ++;
+		} else {
+			infoRows[k++] = allRows[i];
+			// check for abstract/comment
+			if (allRows[i].className.match(/abstract/)) {
+				absRows.push(allRows[i]);
+				absRowsData[j-1] = stripDiacritics(getTextContent(allRows[i]));
+			} else if (allRows[i].className.match(/comment/)) {
+				revRows.push(allRows[i]);
+				revRowsData[j-1] = stripDiacritics(getTextContent(allRows[i]));
+			}
+		}
+	}
+	//number of entries and rows
+	numEntries = entryRows.length;
+	numInfo = infoRows.length;
+	numAbs = absRows.length;
+	numRev = revRows.length;
+}
+
+function quickSearch(){
+	
+	tInput = qsfield;
+
+	if (tInput.value.length == 0) {
+		showAll();
+		setStatistics(-1);
+		qsfield.className = '';
+		return;
+	} else {
+		t = stripDiacritics(tInput.value);
+
+		if(!searchRegExp) { t = escapeRegExp(t); }
+			
+		// only search for valid RegExp
+		try {
+			textRegExp = new RegExp(t,"i");
+			closeAllInfo();
+			qsfield.className = '';
+		}
+			catch(err) {
+			prevSearch = tInput.value;
+			qsfield.className = 'invalidsearch';
+			return;
+		}
+	}
+	
+	// count number of hits
+	var hits = 0;
+
+	// start looping through all entry rows
+	for (var i = 0; cRow = entryRows[i]; i++){
+
+		// only show search the cells if it isn't already hidden OR if the search term is getting shorter, then search all
+		if(cRow.className.indexOf('noshow')==-1 || tInput.value.length <= prevSearch.length){
+			var found = false; 
+
+			if (entryRowsData[i].search(textRegExp) != -1 || BibTeXKeys[i].search(textRegExp) != -1){ 
+				found = true;
+			} else {
+				if(searchAbstract && absRowsData[i]!=undefined) {
+					if (absRowsData[i].search(textRegExp) != -1){ found=true; } 
+				}
+				if(searchComment && revRowsData[i]!=undefined) {
+					if (revRowsData[i].search(textRegExp) != -1){ found=true; } 
+				}
+			}
+			
+			if (found){
+				cRow.className = 'entry show';
+				hits++;
+			} else {
+				cRow.className = 'entry noshow';
+			}
+		}
+	}
+
+	// update statistics
+	setStatistics(hits)
+	
+	// set previous search value
+	prevSearch = tInput.value;
+}
+
+
+// Strip Diacritics from text
+// http://stackoverflow.com/questions/990904/javascript-remove-accents-in-strings
+
+// String containing replacement characters for stripping accents 
+var stripstring = 
+    'AAAAAAACEEEEIIII'+
+    'DNOOOOO.OUUUUY..'+
+    'aaaaaaaceeeeiiii'+
+    'dnooooo.ouuuuy.y'+
+    'AaAaAaCcCcCcCcDd'+
+    'DdEeEeEeEeEeGgGg'+
+    'GgGgHhHhIiIiIiIi'+
+    'IiIiJjKkkLlLlLlL'+
+    'lJlNnNnNnnNnOoOo'+
+    'OoOoRrRrRrSsSsSs'+
+    'SsTtTtTtUuUuUuUu'+
+    'UuUuWwYyYZzZzZz.';
+
+function stripDiacritics(str){
+
+    if(noSquiggles==false){
+        return str;
+    }
+
+    var answer='';
+    for(var i=0;i<str.length;i++){
+        var ch=str[i];
+        var chindex=ch.charCodeAt(0)-192;   // Index of character code in the strip string
+        if(chindex>=0 && chindex<stripstring.length){
+            // Character is within our table, so we can strip the accent...
+            var outch=stripstring.charAt(chindex);
+            // ...unless it was shown as a '.'
+            if(outch!='.')ch=outch;
+        }
+        answer+=ch;
+    }
+    return answer;
+}
+
+// http://stackoverflow.com/questions/3446170/escape-string-for-use-in-javascript-regex
+// NOTE: must escape every \ in the export code because of the JabRef Export...
+function escapeRegExp(str) {
+  return str.replace(/[-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
+}
+
+function toggleInfo(articleid,info) {
+
+	var entry = document.getElementById(articleid);
+	var abs = document.getElementById('abs_'+articleid);
+	var rev = document.getElementById('rev_'+articleid);
+	var bib = document.getElementById('bib_'+articleid);
+	
+	if (abs && info == 'abstract') {
+		abs.className.indexOf('noshow') == -1?abs.className = 'abstract noshow':abs.className = 'abstract show';
+	} else if (rev && info == 'comment') {
+		rev.className.indexOf('noshow') == -1?rev.className = 'comment noshow':rev.className = 'comment show';
+	} else if (bib && info == 'bibtex') {
+		bib.className.indexOf('noshow') == -1?bib.className = 'bibtex noshow':bib.className = 'bibtex show';
+	} else { 
+		return;
+	}
+
+	// check if one or the other is available
+	var revshow; var absshow; var bibshow;
+	(abs && abs.className.indexOf('noshow') == -1)? absshow = true: absshow = false;
+	(rev && rev.className.indexOf('noshow') == -1)? revshow = true: revshow = false;	
+	(bib && bib.className.indexOf('noshow') == -1)? bibshow = true: bibshow = false;
+	
+	// highlight original entry
+	if(entry) {
+		if (revshow || absshow || bibshow) {
+		entry.className = 'entry highlight show';
+		} else {
+		entry.className = 'entry show';
+		}
+	}
+	
+	// When there's a combination of abstract/comment/bibtex showing, need to add class for correct styling
+	if(absshow) {
+		(revshow||bibshow)?abs.className = 'abstract nextshow':abs.className = 'abstract';
+	} 
+	if (revshow) {
+		bibshow?rev.className = 'comment nextshow': rev.className = 'comment';
+	}	
+	
+}
+
+function setStatistics (hits) {
+	if(hits < 0) { hits=numEntries; }
+	if(stats) { stats.firstChild.data = hits + '/' + numEntries}
+}
+
+function getTextContent(node) {
+	// Function written by Arve Bersvendsen
+	// http://www.virtuelvis.com
+	
+	if (node.nodeType == 3) {
+	return node.nodeValue;
+	} // text node
+	if (node.nodeType == 1 && node.className != "infolinks") { // element node
+	var text = [];
+	for (var chld = node.firstChild;chld;chld=chld.nextSibling) {
+		text.push(getTextContent(chld));
+	}
+	return text.join("");
+	} return ""; // some other node, won't contain text nodes.
+}
+
+function showAll(){
+	closeAllInfo();
+	for (var i = 0; i < numEntries; i++){ entryRows[i].className = 'entry show'; }
+}
+
+function closeAllInfo(){
+	for (var i=0; i < numInfo; i++){
+		if (infoRows[i].className.indexOf('noshow') ==-1) {
+			infoRows[i].className = infoRows[i].className + ' noshow';
+		}
+	}
+}
+
+function clearQS() {
+	qsfield.value = '';
+	showAll();
+}
+
+function redoQS(){
+	showAll();
+	quickSearch(qsfield);
+}
+
+function updateSetting(obj){
+	var option = obj.id;
+	var checked = obj.value;
+
+	switch(option)
+	 {
+	 case "opt_searchAbs":
+	   searchAbstract=!searchAbstract;
+	   redoQS();
+	   break;
+	 case "opt_searchComment":
+	   searchComment=!searchComment;
+	   redoQS();
+	   break;
+	 case "opt_useRegExp":
+	   searchRegExp=!searchRegExp;
+	   redoQS();
+	   break;
+	 case "opt_noAccents":
+	   noSquiggles=!noSquiggles;
+	   loadTableData();
+	   redoQS();
+	   break;
+	 }
+}
+
+function initPreferences(){
+	if(searchAbstract){document.getElementById("opt_searchAbs").checked = true;}
+	if(searchComment){document.getElementById("opt_searchComment").checked = true;}
+	if(noSquiggles){document.getElementById("opt_noAccents").checked = true;}
+	if(searchRegExp){document.getElementById("opt_useRegExp").checked = true;}
+	
+	if(numAbs==0) {document.getElementById("opt_searchAbs").parentNode.style.display = 'none';}
+	if(numRev==0) {document.getElementById("opt_searchComment").parentNode.style.display = 'none';}	
+}
+
+function toggleSettings(){
+	var togglebutton = document.getElementById('showsettings');
+	var settings = document.getElementById('settings');
+	
+	if(settings.className == "hidden"){
+		settings.className = "show";
+		togglebutton.innerText = "close settings";
+		togglebutton.textContent = "close settings";
+	}else{
+		settings.className = "hidden";
+		togglebutton.innerText = "settings...";		
+		togglebutton.textContent = "settings...";
+	}
+}
+
+-->
+</script>
+<style type="text/css">
+body { background-color: white; font-family: Arial, sans-serif; font-size: 13px; line-height: 1.2; padding: 1em; color: #2E2E2E; width: 50em; margin: auto auto; }
+
+form#quicksearch { width: auto; border-style: solid; border-color: gray; border-width: 1px 0px; padding: 0.7em 0.5em; display:none; position:relative; }
+span#searchstat {padding-left: 1em;}
+
+div#settings { margin-top:0.7em; /* border-bottom: 1px transparent solid; background-color: #efefef; border: 1px grey solid; */ }
+div#settings ul {margin: 0; padding: 0; }
+div#settings li {margin: 0; padding: 0 1em 0 0; display: inline; list-style: none; }
+div#settings li + li { border-left: 2px #efefef solid; padding-left: 0.5em;}
+div#settings input { margin-bottom: 0px;}
+
+div#settings.hidden {display:none;}
+
+#showsettings { border: 1px grey solid; padding: 0 0.5em; float:right; line-height: 1.6em; text-align: right; }
+#showsettings:hover { cursor: pointer; }
+
+.invalidsearch { background-color: red; }
+input[type="button"] { background-color: #efefef; border: 1px #2E2E2E solid;}
+
+table { border: 1px gray none; width: 100%; empty-cells: show; border-spacing: 0em 0.1em; margin: 1em 0em; }
+th, td { border: none; padding: 0.5em; vertical-align: top; text-align: justify; }
+
+td a { color: navy; text-decoration: none; }
+td a:hover  { text-decoration: underline; }
+
+tr.noshow { display: none;}
+tr.highlight td { background-color: #EFEFEF; border-top: 2px #2E2E2E solid; font-weight: bold; }
+tr.abstract td, tr.comment td, tr.bibtex td { background-color: #EFEFEF; text-align: justify; border-bottom: 2px #2E2E2E solid; }
+tr.nextshow td { border-bottom-style: none; }
+
+tr.bibtex pre { width: 100%; overflow: auto; white-space: pre-wrap;}
+p.infolinks { margin: 0.3em 0em 0em 0em; padding: 0px; }
+
+@media print {
+	p.infolinks, #qs_settings, #quicksearch, t.bibtex { display: none !important; }
+	tr { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+<form action="" id="quicksearch">
+<input type="text" id="qs_field" autocomplete="off" placeholder="Type to search..." /> <input type="button" onclick="clearQS()" value="clear" />
+<span id="searchstat">Matching entries: <span id="stat">0</span></span>
+<div id="showsettings" onclick="toggleSettings()">settings...</div>
+<div id="settings" class="hidden">
+<ul>
+<li><input type="checkbox" class="search_setting" id="opt_searchAbs" onchange="updateSetting(this)"><label for="opt_searchAbs"> include abstract</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_searchComment" onchange="updateSetting(this)"><label for="opt_searchComment"> include comment</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_useRegExp" onchange="updateSetting(this)"><label for="opt_useRegExp"> use RegExp</label></li>
+<li><input type="checkbox" class="search_setting" id="opt_noAccents" onchange="updateSetting(this)"><label for="opt_noAccents"> ignore accents</label></li>
+</ul>
+</div>
+</form>
+<table id="qs_table" border="1">
+<tbody>
+<tr id="Patsyk2020" class="entry">
+	<td>Patsyk A, Sivan U, Segev M and Bandres MA (2020), <i>"Observation of branched flow of light"</i>, Nature., July, 2020.  Vol. 583(7814), pp. 60-65.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Patsyk2020','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Patsyk2020','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1038/s41586-020-2376-8" target="_blank">DOI</a>] [<a href="https://www.nature.com/articles/s41586-020-2376-8" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Patsyk2020" class="abstract noshow">
+	<td><b>Abstract</b>: When waves propagate through a weak disordered potential with correlation length larger than the wavelength, they form channels (branches) of enhanced intensity that keep dividing as the waves propagate1. This fundamental wave phenomenon is known as branched flow. It was first observed for electrons1–6 and for microwave cavities7,8, and it is generally expected for waves with vastly different wavelengths, for example, branched flow has been suggested as a focusing mechanism for ocean waves9–11, and was suggested to occur also in sound waves12 and ultrarelativistic electrons in graphene13. Branched flow may act as a trigger for the formation of extreme nonlinear events14–17 and as a channel through which energy is transmitted in a scattering medium18. Here we present the experimental observation of the branched flow of light. We show that, as light propagates inside a thin soap membrane, smooth thickness variations in the film act as a correlated disordered potential, focusing the light into filaments that display the features of branched flow: scaling of the distance to the first branching point and the probability distribution of the intensity. We find that, counterintuitively, despite the random variations in the medium and the linear nature of the effect, the filaments remain collimated throughout their paths. Bringing branched flow to the field of optics, with its full arsenal of tools, opens the door to the investigation of a plethora of new ideas such as branched flow in nonlinear media, in curved space or in active systems with gain. Furthermore, the labile nature of soap films leads to a regime in which the branched flow of light interacts and affects the underlying disorder through radiation pressure and gradient force.</td>
+</tr>
+<tr id="bib_Patsyk2020" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Patsyk2020,
+  author = {Patsyk, Anatoly and Sivan, Uri and Segev, Mordechai and Bandres, Miguel A.},
+  title = {Observation of branched flow of light},
+  journal = {Nature},
+  year = {2020},
+  volume = {583},
+  number = {7814},
+  pages = {60--65},
+  note = {Number: 7814 Publisher: Nature Publishing Group},
+  url = {https://www.nature.com/articles/s41586-020-2376-8},
+  doi = {10.1038/s41586-020-2376-8}
+}
+</pre></td>
+</tr>
+<tr id="Brandstoetter2019" class="entry">
+	<td>Brandstötter A, Girschik A, Ambichl P and Rotter S (2019), <i>"Shaping the branched flow of light through disordered media"</i>, Proceedings of the National Academy of Sciences., July, 2019.  Vol. 116(27), pp. 13260-13265.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Brandstoetter2019','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Brandstoetter2019','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1073/pnas.1905217116" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Brandstoetter2019" class="abstract noshow">
+	<td><b>Abstract</b>: In summary, this work demonstrates how to control the ﬂow of waves through a correlated and weak disorder potential landscape. Such systems give rise to branches along which incoming waves travel through the disorder. We introduce a method that allows us to inject waves in such a way that almost all of the ﬂow travels along a single branch alone. This nontrivial ﬁnding can even be extended to the temporal domain as we show by creating pulses that remain on a single branch throughout the entire transmission process. Implementing such concepts in optics requires only a small subpart of the transmission matrix and is thus within reach of present-day technology. We expect our work to be generalizable from scalar to vector waves and from two to three dimensions, where it may give rise to interesting applications in communication and imaging technology.</td>
+</tr>
+<tr id="bib_Brandstoetter2019" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Brandstoetter2019,
+  author = {Brandstötter, Andre and Girschik, Adrian and Ambichl, Philipp and Rotter, Stefan},
+  title = {Shaping the branched flow of light through disordered media},
+  journal = {Proceedings of the National Academy of Sciences},
+  year = {2019},
+  volume = {116},
+  number = {27},
+  pages = {13260--13265},
+  doi = {10.1073/pnas.1905217116}
+}
+</pre></td>
+</tr>
+<tr id="green_branched_2019" class="entry">
+	<td>Green G and Fleischmann R (2019), <i>"Branched flow and caustics in nonlinear waves"</i>, New Journal of Physics., August, 2019.  Vol. 21(8), pp. 083020.
+	<p class="infolinks">[<a href="javascript:toggleInfo('green_branched_2019','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('green_branched_2019','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1088/1367-2630/ab319b" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_green_branched_2019" class="abstract noshow">
+	<td><b>Abstract</b>: Rogue waves, i.e. high amplitude fluctuations in random wave fields, have been studied in several contexts, ranging from optics via acoustics to the propagation of ocean waves. Scattering by disorder, like current fields and wind fluctuations in the ocean, as well as nonlinearities in the wave equations provide widely studied mechanisms for their creation. However, the interaction of these mechanisms is largely unexplored. Hence, we study wave propagation under the concurrent influence of geometrical (disorder) and nonlinear focusing in the (current-modified) nonlinear Schrödinger equation. We show how nonlinearity shifts the onset distance of geometrical (disorder) focusing and alters the peak intensities of the fluctuations. We find an intricate interplay of both mechanisms that is reflected in the observation of optimal ratios of nonlinearity and disorder strength for the generation of rogue waves.</td>
+</tr>
+<tr id="bib_green_branched_2019" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{green_branched_2019,
+  author = {Green, Gerrit and Fleischmann, Ragnar},
+  title = {Branched flow and caustics in nonlinear waves},
+  journal = {New Journal of Physics},
+  year = {2019},
+  volume = {21},
+  number = {8},
+  pages = {083020},
+  doi = {10.1088/1367-2630/ab319b}
+}
+</pre></td>
+</tr>
+<tr id="heller_branched_2019" class="entry">
+	<td>Heller EJ, Fleischmann R and Kramer T (2019), <i>"Branched Flow"</i>, arXiv:1910.07086 [physics]., October, 2019. 
+	<p class="infolinks">[<a href="javascript:toggleInfo('heller_branched_2019','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('heller_branched_2019','bibtex')">BibTeX</a>] [<a href="http://arxiv.org/abs/1910.07086" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="abs_heller_branched_2019" class="abstract noshow">
+	<td><b>Abstract</b>: In many physical situations involving diverse length scales, waves or rays representing them travel through media characterized by spatially smooth, random, modest refactive index variations. "Primary" diffraction (by individual sub-wavelength features) is absent. Eventually the weak refraction leads to imperfect focal "cusps". Much later, a statistical regime characterized by momentum diffusion is manifested. An important intermediate regime is often overlooked, one that is diffusive only in an ensemble sense. Each realization of the ensemble possesses dramatic ray limit structure that guides the waves (in the same sense that ray optics is used to design lens systems). This structure is a universal phenomenon called branched flow. Many important phenomena develop in this intermediate regime. Here we give examples and some of the physics of this emerging field.</td>
+</tr>
+<tr id="bib_heller_branched_2019" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{heller_branched_2019,
+  author = {Heller, Eric J. and Fleischmann, Ragnar and Kramer, Tobias},
+  title = {Branched Flow},
+  journal = {arXiv:1910.07086 [physics]},
+  year = {2019},
+  note = {arXiv: 1910.07086},
+  url = {http://arxiv.org/abs/1910.07086}
+}
+</pre></td>
+</tr>
+<tr id="Braem2018" class="entry">
+	<td>Braem BA, Gold C, Hennel S, Röösli M, Berl M, Dietsche W, Wegscheider W, Ensslin K and Ihn T (2018), <i>"Stable branched electron flow"</i>, New Journal of Physics., July, 2018.  Vol. 20(7), pp. 073015.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Braem2018','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1088/1367-2630/aad068" target="_blank">DOI</a>] [<a href="http://stacks.iop.org/1367-2630/20/i=7/a=073015?key=crossref.5547df9c234611611126c79eb433216f" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Braem2018" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Braem2018,
+  author = {Braem, B A and Gold, C and Hennel, S and Röösli, M and Berl, M and Dietsche, W and Wegscheider, W and Ensslin, K and Ihn, T},
+  title = {Stable branched electron flow},
+  journal = {New Journal of Physics},
+  year = {2018},
+  volume = {20},
+  number = {7},
+  pages = {073015},
+  url = {http://stacks.iop.org/1367-2630/20/i=7/a=073015?key=crossref.5547df9c234611611126c79eb433216f},
+  doi = {10.1088/1367-2630/aad068}
+}
+</pre></td>
+</tr>
+<tr id="Mattheakis2018" class="entry">
+	<td>Mattheakis M, Tsironis GP and Kaxiras E (2018), <i>"Emergence and dynamical properties of stochastic branching in the electronic flows of disordered Dirac solids"</i>, EPL (Europhysics Letters)., June, 2018.  Vol. 122(2), pp. 27003.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Mattheakis2018','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Mattheakis2018','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1209/0295-5075/122/27003" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Mattheakis2018" class="abstract noshow">
+	<td><b>Abstract</b>: Graphene as well as more generally Dirac solids constitute two-dimensional materials where the electronic flow is ultra-relativistic. When a Dirac solid is deposited on a different substrate surface with roughness, a local random potential develops through an inhomogeneous charge impurity distribution. This external potential affects profoundly the charge flow and induces a chaotic pattern of current branches that develops through focusing and defocusing effects produced by the randomness of the surface. An additional bias voltage may be used to tune the branching pattern of the charge carrier currents. We employ analytical and numerical techniques in order to investigate the onset and the statistical properties of carrier branches in Dirac solids. We find a specific scaling-type relationship that connects the physical scale for the occurrence of branches with the characteristic medium properties, such as disorder and bias field. We use numerics to test and verify the theoretical prediction as well as a perturbative approach that gives a clear indication of the regime of validity of the approach. This work is relevant to device applications and may be tested experimentally.</td>
+</tr>
+<tr id="bib_Mattheakis2018" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Mattheakis2018,
+  author = {Mattheakis, Marios and Tsironis, G. P. and Kaxiras, Efthimios},
+  title = {Emergence and dynamical properties of stochastic branching in the electronic flows of disordered Dirac solids},
+  journal = {EPL (Europhysics Letters)},
+  year = {2018},
+  volume = {122},
+  number = {2},
+  pages = {27003},
+  note = {Publisher: IOP Publishing},
+  doi = {10.1209/0295-5075/122/27003}
+}
+</pre></td>
+</tr>
+<tr id="degueldre_channeling_2017" class="entry">
+	<td>Degueldre H, Metzger JJ, Schultheis E and Fleischmann R (2017), <i>"Channeling of Branched Flow in Weakly Scattering Anisotropic Media"</i>, Physical Review Letters., January, 2017.  Vol. 118(2), pp. 024301.
+	<p class="infolinks">[<a href="javascript:toggleInfo('degueldre_channeling_2017','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('degueldre_channeling_2017','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1103/PhysRevLett.118.024301" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_degueldre_channeling_2017" class="abstract noshow">
+	<td><b>Abstract</b>: When waves propagate through weakly scattering but correlated, disordered environments they are randomly focused into pronounced branchlike structures, a phenomenon referred to as branched flow, which has been studied in a wide range of isotropic random media. In many natural environments, however, the fluctuations of the random medium typically show pronounced anisotropies. A prominent example is the focusing of tsunami waves by the anisotropic structure of the ocean floor topography. We study the influence of anisotropy on such natural focusing events and find a strong and nonintuitive dependence on the propagation angle which we explain by semiclassical theory.</td>
+</tr>
+<tr id="bib_degueldre_channeling_2017" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{degueldre_channeling_2017,
+  author = {Degueldre, Henri and Metzger, Jakob J. and Schultheis, Erik and Fleischmann, Ragnar},
+  title = {Channeling of Branched Flow in Weakly Scattering Anisotropic Media},
+  journal = {Physical Review Letters},
+  year = {2017},
+  volume = {118},
+  number = {2},
+  pages = {024301},
+  doi = {10.1103/PhysRevLett.118.024301}
+}
+</pre></td>
+</tr>
+<tr id="degueldre_random_2016" class="entry">
+	<td>Degueldre H, Metzger JJ, Geisel T and Fleischmann R (2016), <i>"Random focusing of tsunami waves"</i>, Nature Physics., March, 2016.  Vol. 12(3), pp. 259-262.
+	<p class="infolinks">[<a href="javascript:toggleInfo('degueldre_random_2016','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('degueldre_random_2016','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1038/nphys3557" target="_blank">DOI</a>] [<a href="http://www.nature.com/nphys/journal/v12/n3/full/nphys3557.html" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="abs_degueldre_random_2016" class="abstract noshow">
+	<td><b>Abstract</b>: Tsunamis exhibit surprisingly strong height fluctuations. An in-depth understanding of the mechanisms that lead to these variations in wave height is a prerequisite for reliable tsunami forecasting. It is known, for example, that the presence of large underwater islands or the shape of the tsunami source can affect the wave heights. Here we show that the consecutive effect of even tiny fluctuations in the profile of the ocean floor (the bathymetry) can cause unexpectedly strong fluctuations in the wave height of tsunamis, with maxima several times higher than the average wave height. A novel approach combining stochastic caustic theory and shallow water wave dynamics allows us to determine the typical propagation distance at which the strongly focused waves appear. We demonstrate that owing to this mechanism the small errors present in bathymetry measurements can lead to drastic variations in predicted tsunami heights. Our results show that a precise knowledge of the ocean’s bathymetry is absolutely indispensable for reliable tsunami forecasts.</td>
+</tr>
+<tr id="bib_degueldre_random_2016" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{degueldre_random_2016,
+  author = {Degueldre, Henri and Metzger, Jakob J. and Geisel, Theo and Fleischmann, Ragnar},
+  title = {Random focusing of tsunami waves},
+  journal = {Nature Physics},
+  year = {2016},
+  volume = {12},
+  number = {3},
+  pages = {259--262},
+  url = {http://www.nature.com/nphys/journal/v12/n3/full/nphys3557.html},
+  doi = {10.1038/nphys3557}
+}
+</pre></td>
+</tr>
+<tr id="Mattheakis2016" class="entry">
+	<td>Mattheakis M, Pitsios IJ, Tsironis GP and Tzortzakis S (2016), <i>"Extreme events in complex linear and nonlinear photonic media"</i>, Chaos, Solitons &amp; Fractals., March, 2016.  Vol. 84(Supplement C), pp. 73-80.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Mattheakis2016','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Mattheakis2016','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1016/j.chaos.2016.01.008" target="_blank">DOI</a>] [<a href="http://www.sciencedirect.com/science/article/pii/S0960077916000175" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Mattheakis2016" class="abstract noshow">
+	<td><b>Abstract</b>: Ocean rogue waves (RW) are huge solitary waves that have for long triggered the interest of scientists. The RWs emerge in a complex environment and it is still under investigation if they are due to linear or nonlinear processes. Recent works have demonstrated that RWs appear in various other physical systems such as microwaves, nonlinear crystals, cold atoms, etc. In this work we investigate optical wave propagation in strongly scattering random lattices embedded in the bulk of transparent glasses. In the linear regime we observe the appearance of extreme waves, RW-type, that depend solely on the scattering properties of the medium. Interestingly, the addition of nonlinearity does not modify the RW statistics, while as the nonlinearities are increased multiple-filamentation and intensity clamping destroy the RW statistics. Numerical simulations agree nicely with the experimental findings and altogether prove that optical rogue waves are generated through the linear strong scattering in such complex environments.</td>
+</tr>
+<tr id="bib_Mattheakis2016" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Mattheakis2016,
+  author = {Mattheakis, M. and Pitsios, I. J. and Tsironis, G. P. and Tzortzakis, S.},
+  title = {Extreme events in complex linear and nonlinear photonic media},
+  journal = {Chaos, Solitons &amp; Fractals},
+  year = {2016},
+  volume = {84},
+  number = {Supplement C},
+  pages = {73--80},
+  note = {00003},
+  url = {http://www.sciencedirect.com/science/article/pii/S0960077916000175},
+  doi = {10.1016/j.chaos.2016.01.008}
+}
+</pre></td>
+</tr>
+<tr id="Mathis2015" class="entry">
+	<td>Mathis A, Froehly L, Toenger S, Dias F, Genty G and Dudley JM (2015), <i>"Caustics and Rogue Waves in an Optical Sea"</i>, Scientific Reports., August, 2015.  Vol. 5, pp. 12822.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Mathis2015','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1038/srep12822" target="_blank">DOI</a>] [<a href="http://www.nature.com/articles/srep12822" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Mathis2015" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Mathis2015,
+  author = {Mathis, Amaury and Froehly, Luc and Toenger, Shanti and Dias, Frédéric and Genty, Goëry and Dudley, John M.},
+  title = {Caustics and Rogue Waves in an Optical Sea},
+  journal = {Scientific Reports},
+  year = {2015},
+  volume = {5},
+  pages = {12822},
+  url = {http://www.nature.com/articles/srep12822},
+  doi = {10.1038/srep12822}
+}
+</pre></td>
+</tr>
+<tr id="metzger_statistics_2014" class="entry">
+	<td>Metzger JJ, Fleischmann R and Geisel T (2014), <i>"Statistics of Extreme Waves in Random Media"</i>, Physical Review Letters., May, 2014.  Vol. 112(20), pp. 203903.
+	<p class="infolinks">[<a href="javascript:toggleInfo('metzger_statistics_2014','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('metzger_statistics_2014','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1103/PhysRevLett.112.203903" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_metzger_statistics_2014" class="abstract noshow">
+	<td><b>Abstract</b>: Waves traveling through random media exhibit random focusing that leads to extremely high wave intensities even in the absence of nonlinearities. Although such extreme events are present in a wide variety of physical systems and the statistics of the highest waves is important for their analysis and forecast, it remains poorly understood, in particular, in the regime where the waves are highest. We suggest a new approach that greatly simplifies the mathematical analysis and calculate the scaling and the distribution of the highest waves valid for a wide range of parameters.</td>
+</tr>
+<tr id="bib_metzger_statistics_2014" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{metzger_statistics_2014,
+  author = {Metzger, Jakob J. and Fleischmann, Ragnar and Geisel, Theo},
+  title = {Statistics of Extreme Waves in Random Media},
+  journal = {Physical Review Letters},
+  year = {2014},
+  volume = {112},
+  number = {20},
+  pages = {203903},
+  note = {00000},
+  doi = {10.1103/PhysRevLett.112.203903}
+}
+</pre></td>
+</tr>
+<tr id="Pen2014" class="entry">
+	<td>Pen U-L and Levin Y (2014), <i>"Pulsar scintillations from corrugated reconnection sheets in the interstellar medium"</i>, Monthly Notices of the Royal Astronomical Society., August, 2014.  Vol. 442(4), pp. 3338-3346.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Pen2014','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Pen2014','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1093/mnras/stu1020" target="_blank">DOI</a>] [<a href="https://academic.oup.com/mnras/article/442/4/3338/1337948" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Pen2014" class="abstract noshow">
+	<td><b>Abstract</b>: Abstract. We show that surface waves along interstellar current sheets closely aligned with the line of sight lead to pulsar scintillation properties consistent</td>
+</tr>
+<tr id="bib_Pen2014" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Pen2014,
+  author = {Pen, Ue-Li and Levin, Yuri},
+  title = {Pulsar scintillations from corrugated reconnection sheets in the interstellar medium},
+  journal = {Monthly Notices of the Royal Astronomical Society},
+  year = {2014},
+  volume = {442},
+  number = {4},
+  pages = {3338--3346},
+  note = {Publisher: Oxford Academic},
+  url = {https://academic.oup.com/mnras/article/442/4/3338/1337948},
+  doi = {10.1093/mnras/stu1020}
+}
+</pre></td>
+</tr>
+<tr id="barkhofen_experimental_2013" class="entry">
+	<td>Barkhofen S, Metzger JJ, Fleischmann R, Kuhl U and Stöckmann H-J (2013), <i>"Experimental Observation of a Fundamental Length Scale of Waves in Random Media"</i>, Physical Review Letters., November, 2013.  Vol. 111(18), pp. 183902.
+	<p class="infolinks">[<a href="javascript:toggleInfo('barkhofen_experimental_2013','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('barkhofen_experimental_2013','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1103/PhysRevLett.111.183902" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_barkhofen_experimental_2013" class="abstract noshow">
+	<td><b>Abstract</b>: Waves propagating through a weakly scattering random medium show a pronounced branching of the flow accompanied by the formation of freak waves, i.e., extremely intense waves. Theory predicts that this strong fluctuation regime is accompanied by its own fundamental length scale of transport in random media, parametrically different from the mean free path or the localization length. We show numerically how the scintillation index can be used to assess the scaling behavior of the branching length. We report the experimental observation of this scaling using microwave transport experiments in quasi-two-dimensional resonators with randomly distributed weak scatterers. Remarkably, the scaling range extends much further than expected from random caustics statistics.</td>
+</tr>
+<tr id="bib_barkhofen_experimental_2013" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{barkhofen_experimental_2013,
+  author = {Barkhofen, S. and Metzger, J. J. and Fleischmann, R. and Kuhl, U. and Stöckmann, H.-J.},
+  title = {Experimental Observation of a Fundamental Length Scale of Waves in Random Media},
+  journal = {Physical Review Letters},
+  year = {2013},
+  volume = {111},
+  number = {18},
+  pages = {183902},
+  doi = {10.1103/PhysRevLett.111.183902}
+}
+</pre></td>
+</tr>
+<tr id="Ehrhardt2013" class="entry">
+	<td>Ehrhardt L, Cheinet S, Juvé D and Blanc-Benon P (2013), <i>"Evaluating a linearized Euler equations model for strong turbulence effects on sound propagation"</i>, The Journal of the Acoustical Society of America.  Vol. 133(4), pp. 1922-1933.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Ehrhardt2013','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1121/1.4792150" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Ehrhardt2013" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Ehrhardt2013,
+  author = {Ehrhardt, Loïc and Cheinet, Sylvain and Juvé, Daniel and Blanc-Benon, Philippe},
+  title = {Evaluating a linearized Euler equations model for strong turbulence effects on sound propagation},
+  journal = {The Journal of the Acoustical Society of America},
+  year = {2013},
+  volume = {133},
+  number = {4},
+  pages = {1922--1933},
+  doi = {10.1121/1.4792150}
+}
+</pre></td>
+</tr>
+<tr id="Kanoglu2013" class="entry">
+	<td>Kanoglu U, Titov VV, Aydin B, Moore C, Stefanakis TS, Zhou H, Spillane M and Synolakis CE (2013), <i>"Focusing of long waves with finite crest over constant depth"</i>, Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences., February, 2013.  Vol. 469(2153), pp. 20130015-20130015.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Kanoglu2013','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1098/rspa.2013.0015" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Kanoglu2013" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Kanoglu2013,
+  author = {Kanoglu, U. and Titov, V. V. and Aydin, B. and Moore, C. and Stefanakis, T. S. and Zhou, H. and Spillane, M. and Synolakis, C. E.},
+  title = {Focusing of long waves with finite crest over constant depth},
+  journal = {Proceedings of the Royal Society A: Mathematical, Physical and Engineering Sciences},
+  year = {2013},
+  volume = {469},
+  number = {2153},
+  pages = {20130015--20130015},
+  doi = {10.1098/rspa.2013.0015}
+}
+</pre></td>
+</tr>
+<tr id="Liu2013" class="entry">
+	<td>Liu B and Heller EJ (2013), <i>"Stability of Branched Flow from a Quantum Point Contact"</i>, Physical Review Letters., December, 2013.  Vol. 111(23), pp. 236804.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Liu2013','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1103/PhysRevLett.111.236804" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Liu2013" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Liu2013,
+  author = {Liu, Bo and Heller, Eric J.},
+  title = {Stability of Branched Flow from a Quantum Point Contact},
+  journal = {Physical Review Letters},
+  year = {2013},
+  volume = {111},
+  number = {23},
+  pages = {236804},
+  note = {00000},
+  doi = {10.1103/PhysRevLett.111.236804}
+}
+</pre></td>
+</tr>
+<tr id="metzger_intensity_2013" class="entry">
+	<td>Metzger JJ, Fleischmann R and Geisel T (2013), <i>"Intensity Fluctuations of Waves in Random Media: What Is the Semiclassical Limit?"</i>, Physical Review Letters., July, 2013.  Vol. 111(1), pp. 013901.
+	<p class="infolinks">[<a href="javascript:toggleInfo('metzger_intensity_2013','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('metzger_intensity_2013','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1103/PhysRevLett.111.013901" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_metzger_intensity_2013" class="abstract noshow">
+	<td><b>Abstract</b>: Waves traveling through weakly random media are known to be strongly affected by their corresponding ray dynamics, in particular in forming linear freak waves. The ray intensity distribution, which, e.g., quantifies the probability of freak waves is unknown, however, and a theory of how it is approached in an appropriate semiclassical limit of wave mechanics is lacking. We show that this limit is not the usual limit of small wavelengths, but that of decoherence. Our theory, which can describe the intensity distribution for an arbitrary degree of coherence is relevant to a wide range of physical systems, as decoherence is omnipresent in real systems.</td>
+</tr>
+<tr id="bib_metzger_intensity_2013" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{metzger_intensity_2013,
+  author = {Metzger, Jakob J. and Fleischmann, Ragnar and Geisel, Theo},
+  title = {Intensity Fluctuations of Waves in Random Media: What Is the Semiclassical Limit?},
+  journal = {Physical Review Letters},
+  year = {2013},
+  volume = {111},
+  number = {1},
+  pages = {013901},
+  doi = {10.1103/PhysRevLett.111.013901}
+}
+</pre></td>
+</tr>
+<tr id="maryenko_how_2012" class="entry">
+	<td>Maryenko D, Ospald F, v. Klitzing K, Smet JH, Metzger JJ, Fleischmann R, Geisel T and Umansky V (2012), <i>"How branching can change the conductance of ballistic semiconductor devices"</i>, Physical Review B., May, 2012.  Vol. 85(19), pp. 195329.
+	<p class="infolinks">[<a href="javascript:toggleInfo('maryenko_how_2012','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('maryenko_how_2012','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1103/PhysRevB.85.195329" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_maryenko_how_2012" class="abstract noshow">
+	<td><b>Abstract</b>: We demonstrate that branching of the electron flow in semiconductor nanostructures can strongly affect macroscopic transport quantities and can significantly change their dependence on external parameters compared to the ideal ballistic case, even when the system size is much smaller than the mean free path. In a corner-shaped ballistic device based on a GaAs/AlGaAs two-dimensional electron gas, we observe a splitting of the commensurability peaks in the magnetoresistance curve. We show that a model which includes a random disorder potential of the two-dimensional electron gas can account for the random splitting of the peaks that result from the collimation of the electron beam. The shape of the splitting depends on the particular realization of the disorder potential. At the same time, magnetic focusing peaks are largely unaffected by the disorder potential.</td>
+</tr>
+<tr id="bib_maryenko_how_2012" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{maryenko_how_2012,
+  author = {Maryenko, D. and Ospald, F. and v. Klitzing, K. and Smet, J. H. and Metzger, J. J. and Fleischmann, R. and Geisel, T. and Umansky, V.},
+  title = {How branching can change the conductance of ballistic semiconductor devices},
+  journal = {Physical Review B},
+  year = {2012},
+  volume = {85},
+  number = {19},
+  pages = {195329},
+  doi = {10.1103/PhysRevB.85.195329}
+}
+</pre></td>
+</tr>
+<tr id="Ni2012" class="entry">
+	<td>Ni X, Lai Y-C and Wang W-X (2012), <i>"Emergence of scaling associated with complex branched wave structures in optical medium"</i>, Chaos: An Interdisciplinary Journal of Nonlinear Science., November, 2012.  Vol. 22(4), pp. 043116-043116-11.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Ni2012','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Ni2012','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1063/1.4766757" target="_blank">DOI</a>] [<a href="http://chaos.aip.org/resource/1/chaoeh/v22/i4/p043116_s1" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Ni2012" class="abstract noshow">
+	<td><b>Abstract</b>: Branched wave structures, an unconventional wave propagation pattern, can arise in random media. Experimental evidence has accumulated, revealing the occurrence of these waves in systems ranging from microwave and optical systems to solid-state devices. Experiments have also established the universal feature that the wave-intensity statistics deviate from Gaussian and typically possess a long-tail distribution, implying the existence of spatially localized regions with extraordinarily high intensity concentration (“hot” spots). Despite previous efforts, the origin of branched wave pattern is currently an issue of debate. Recently, we proposed a “minimal” model of wave propagation and scattering in optical media, taking into account the essential physics for generating robust branched flows: (1) a finite-size medium for linear wave propagation and (2) random scatterers whose refractive indices deviate continuously from that of the background medium. Here we provide extensive numerical evidence and a comprehensive analytic treatment of the scaling behavior to establish that branched wave patterns can emerge as a general phenomenon in wide parameter regime in between the weak-scattering limit and Anderson localization. The basic physical mechanisms to form branched waves are breakup of waves by a single scatterer and constructive interference of broken waves from multiple scatterers. Despite simplicity of our model, analysis of the scattering field naturally yields an algebraic (power-law) statistic in the high wave-intensity distribution, indicating that our model is able to capture the generic physical origin of these special wave patterns. The insights so obtained can be used to better understand the origin of complex extreme wave patterns, whose occurrences can have significant impact on the performance of the underlying physical systems or devices.</td>
+</tr>
+<tr id="bib_Ni2012" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Ni2012,
+  author = {Ni, Xuan and Lai, Ying-Cheng and Wang, Wen-Xu},
+  title = {Emergence of scaling associated with complex branched wave structures in optical medium},
+  journal = {Chaos: An Interdisciplinary Journal of Nonlinear Science},
+  year = {2012},
+  volume = {22},
+  number = {4},
+  pages = {043116--043116--11},
+  url = {http://chaos.aip.org/resource/1/chaoeh/v22/i4/p043116_s1},
+  doi = {10.1063/1.4766757}
+}
+</pre></td>
+</tr>
+<tr id="Ying2012" class="entry">
+	<td>Ying L and Kaplan L (2012), <i>"Systematic study of rogue wave probability distributions in a fourth-order nonlinear Schrödinger equation"</i>, Journal of Geophysical Research C: Oceans.  Vol. 117(8)
+	<p class="infolinks">[<a href="javascript:toggleInfo('Ying2012','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Ying2012','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Ying2012" class="abstract noshow">
+	<td><b>Abstract</b>: Nonlinear instability and refraction by ocean currents are both important mechanisms that go beyond the Rayleigh approximation and may be responsible for the formation of freak waves. In this paper, we quantitatively study nonlinear effects on the evolution of surface gravity waves on the ocean, to explore systematically the effects of various input parameters on the probability of freak wave formation. The fourth-order current-modified nonlinear Schrödinger equation (CNLS                         4) is employed to describe the wave evolution. By solving CNLS                         4 numerically, we are able to obtain quantitative predictions for the wave height distribution as a function of key environmental conditions such as average steepness, angular spread, and frequency spread of the local sea state. Additionally, we explore the spatial dependence of the wave height distribution, associated with the buildup of nonlinear development. ©2012. American Geophysical Union. All Rights Reserved.</td>
+</tr>
+<tr id="bib_Ying2012" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Ying2012,
+  author = {Ying, L.H. and Kaplan, L.},
+  title = {Systematic study of rogue wave probability distributions in a fourth-order nonlinear Schrödinger equation},
+  journal = {Journal of Geophysical Research C: Oceans},
+  year = {2012},
+  volume = {117},
+  number = {8}
+}
+</pre></td>
+</tr>
+<tr id="Ni2011" class="entry">
+	<td>Ni X, Wang W-X and Lai Y-C (2011), <i>"Origin of branched wave structures in optical media and long-tail algebraic intensity distribution"</i>, EPL (Europhysics Letters)., November, 2011.  Vol. 96(4), pp. 44002.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Ni2011','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1209/0295-5075/96/44002" target="_blank">DOI</a>] [<a href="http://stacks.iop.org/0295-5075/96/i=4/a=44002?key=crossref.4501fc9f2153696dab0b802d47ba4941" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Ni2011" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Ni2011,
+  author = {Ni, Xuan and Wang, Wen-Xu and Lai, Ying-Cheng},
+  title = {Origin of branched wave structures in optical media and long-tail algebraic intensity distribution},
+  journal = {EPL (Europhysics Letters)},
+  year = {2011},
+  volume = {96},
+  number = {4},
+  pages = {44002},
+  url = {http://stacks.iop.org/0295-5075/96/i=4/a=44002?key=crossref.4501fc9f2153696dab0b802d47ba4941},
+  doi = {10.1209/0295-5075/96/44002}
+}
+</pre></td>
+</tr>
+<tr id="Ying2011" class="entry">
+	<td>Ying LH, Zhuang Z, Heller EJ and Kaplan L (2011), <i>"Linear and nonlinear rogue wave statistics in the presence of random currents"</i>, Nonlinearity., November, 2011.  Vol. 24(11), pp. R67-R87.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Ying2011','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1088/0951-7715/24/11/R01" target="_blank">DOI</a>] [<a href="http://stacks.iop.org/0951-7715/24/i=11/a=R01?key=crossref.fd1d2c5fbe1d7415dd17bea46748e691" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Ying2011" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Ying2011,
+  author = {Ying, L H and Zhuang, Z and Heller, E J and Kaplan, L},
+  title = {Linear and nonlinear rogue wave statistics in the presence of random currents},
+  journal = {Nonlinearity},
+  year = {2011},
+  volume = {24},
+  number = {11},
+  pages = {R67--R87},
+  url = {http://stacks.iop.org/0951-7715/24/i=11/a=R01?key=crossref.fd1d2c5fbe1d7415dd17bea46748e691},
+  doi = {10.1088/0951-7715/24/11/R01}
+}
+</pre></td>
+</tr>
+<tr id="Coles2010" class="entry">
+	<td>Coles WA, Rickett BJ, Gao JJ, Hobbs G and Verbiest JPW (2010), <i>"SCATTERING OF PULSAR RADIO EMISSION BY THE INTERSTELLAR PLASMA"</i>, The Astrophysical Journal., June, 2010.  Vol. 717(2), pp. 1206.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Coles2010','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1088/0004-637X/717/2/1206" target="_blank">DOI</a>] [<a href="https://iopscience.iop.org/article/10.1088/0004-637X/717/2/1206/meta" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Coles2010" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Coles2010,
+  author = {Coles, W. A. and Rickett, B. J. and Gao, J. J. and Hobbs, G. and Verbiest, J. P. W.},
+  title = {SCATTERING OF PULSAR RADIO EMISSION BY THE INTERSTELLAR PLASMA},
+  journal = {The Astrophysical Journal},
+  year = {2010},
+  volume = {717},
+  number = {2},
+  pages = {1206},
+  note = {Publisher: IOP Publishing},
+  url = {https://iopscience.iop.org/article/10.1088/0004-637X/717/2/1206/meta},
+  doi = {10.1088/0004-637X/717/2/1206}
+}
+</pre></td>
+</tr>
+<tr id="Hoehmann2010" class="entry">
+	<td>Höhmann R, Kuhl U, Stöckmann H-J, Kaplan L and Heller EJ (2010), <i>"Freak Waves in the Linear Regime: A Microwave Study"</i>, Physical Review Letters., March, 2010.  Vol. 104(9), pp. 093901.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Hoehmann2010','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1103/PhysRevLett.104.093901" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Hoehmann2010" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Hoehmann2010,
+  author = {Höhmann, R. and Kuhl, U. and Stöckmann, H.-J. and Kaplan, L. and Heller, E. J.},
+  title = {Freak Waves in the Linear Regime: A Microwave Study},
+  journal = {Physical Review Letters},
+  year = {2010},
+  volume = {104},
+  number = {9},
+  pages = {093901},
+  doi = {10.1103/PhysRevLett.104.093901}
+}
+</pre></td>
+</tr>
+<tr id="metzger_universal_2010" class="entry">
+	<td>Metzger J, Fleischmann R and Geisel T (2010), <i>"Universal Statistics of Branched Flows"</i>, Physical Review Letters., July, 2010.  Vol. 105(2), pp. 020601.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('metzger_universal_2010','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1103/PhysRevLett.105.020601" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_metzger_universal_2010" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{metzger_universal_2010,
+  author = {Metzger, Jakob and Fleischmann, Ragnar and Geisel, Theo},
+  title = {Universal Statistics of Branched Flows},
+  journal = {Physical Review Letters},
+  year = {2010},
+  volume = {105},
+  number = {2},
+  pages = {020601},
+  doi = {10.1103/PhysRevLett.105.020601}
+}
+</pre></td>
+</tr>
+<tr id="Heller2008" class="entry">
+	<td>Heller EJ, Kaplan L and Dahlen A (2008), <i>"Refraction of a Gaussian seaway"</i>, Preprint. 
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Heller2008','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Heller2008" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Heller2008,
+  author = {Heller, E. J. and Kaplan, L. and Dahlen, A.},
+  title = {Refraction of a Gaussian seaway},
+  journal = {Preprint},
+  year = {2008}
+}
+</pre></td>
+</tr>
+<tr id="Berry2007" class="entry">
+	<td>Berry MV (2007), <i>"Focused tsunami waves"</i>, Proceedings of the Royal Society A.  Vol. 463(2087), pp. 3055.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Berry2007','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Berry2007" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Berry2007,
+  author = {Berry, M. V.},
+  title = {Focused tsunami waves},
+  journal = {Proceedings of the Royal Society A},
+  year = {2007},
+  volume = {463},
+  number = {2087},
+  pages = {3055}
+}
+</pre></td>
+</tr>
+<tr id="Jura2007" class="entry">
+	<td>Jura MP, Topinka MA, Urban L, Yazdani A, Shtrikman H, Pfeiffer LN, West KW and Goldhaber-Gordon D (2007), <i>"Unexpected features of branched flow through high-mobility two-dimensional electron gases"</i>, Nature Physics.  Vol. 3(12), pp. 841-845.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Jura2007','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1038/nphys756" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Jura2007" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Jura2007,
+  author = {Jura, M. P. and Topinka, M. A. and Urban, L. and Yazdani, A. and Shtrikman, H. and Pfeiffer, L. N. and West, K. W. and Goldhaber-Gordon, D.},
+  title = {Unexpected features of branched flow through high-mobility two-dimensional electron gases},
+  journal = {Nature Physics},
+  year = {2007},
+  volume = {3},
+  number = {12},
+  pages = {841--845},
+  doi = {10.1038/nphys756}
+}
+</pre></td>
+</tr>
+<tr id="Cordes2006" class="entry">
+	<td>Cordes JM, Rickett BJ, Stinebring DR and Coles WA (2006), <i>"Theory of Parabolic Arcs in Interstellar Scintillation Spectra"</i>, The Astrophysical Journal., January, 2006.  Vol. 637(1), pp. 346.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Cordes2006','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1086/498332" target="_blank">DOI</a>] [<a href="https://iopscience.iop.org/article/10.1086/498332/meta" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Cordes2006" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Cordes2006,
+  author = {Cordes, James M. and Rickett, Barney J. and Stinebring, Daniel R. and Coles, William A.},
+  title = {Theory of Parabolic Arcs in Interstellar Scintillation Spectra},
+  journal = {The Astrophysical Journal},
+  year = {2006},
+  volume = {637},
+  number = {1},
+  pages = {346},
+  note = {Publisher: IOP Publishing},
+  url = {https://iopscience.iop.org/article/10.1086/498332/meta},
+  doi = {10.1086/498332}
+}
+</pre></td>
+</tr>
+<tr id="Rickett2006" class="entry">
+	<td>Rickett B (2006), <i>"Anisotropy in Pulsar Interstellar Scattering"</i>, Chinese Journal of Astronomy and Astrophysics., October, 2006.  Vol. 6(S2), pp. 197-203.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Rickett2006','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Rickett2006','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1088/1009-9271/6/S2/37" target="_blank">DOI</a>] [<a href="https://doi.org/10.1088%2F1009-9271%2F6%2Fs2%2F37" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Rickett2006" class="abstract noshow">
+	<td><b>Abstract</b>: Pulsar observers have to contend with several effects of propagation through the ionized interstellar medium. I review those effects and how they can be used to study the interstellar plasma. Pulsars are normally observed under conditions of strong scintillation and show both diffractive and refractive effects. I emphasize the diffractive scintillation as exhibited in the dynamic spectrum and in its converse – pulse broadening. From Parkes observations of the pulse broadening of PSR J1644-45, I estimate the inner scale in an interstellar region of strong plasma turbulence to be about 100 km. I discuss the representation of dynamic spectra in terms of their “secondary spectra” and show how the arcs, that are often revealed, are related to both angular broadening and pulse broadening. Anisotropy in the scattering both changes the scattered pulse shape but also enhances the visibility of the arcs.</td>
+</tr>
+<tr id="bib_Rickett2006" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Rickett2006,
+  author = {Rickett, Barney},
+  title = {Anisotropy in Pulsar Interstellar Scattering},
+  journal = {Chinese Journal of Astronomy and Astrophysics},
+  year = {2006},
+  volume = {6},
+  number = {S2},
+  pages = {197--203},
+  note = {Publisher: IOP Publishing},
+  url = {https://doi.org/10.1088%2F1009-9271%2F6%2Fs2%2F37},
+  doi = {10.1088/1009-9271/6/S2/37}
+}
+</pre></td>
+</tr>
+<tr id="Stinebring2006" class="entry">
+	<td>Stinebring DR (2006), <i>"Scintillation Arcs: Probing Turbulence and Structure in the ISM"</i>, Chinese Journal of Astronomy and Astrophysics.  Vol. 6(S2), pp. 204.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Stinebring2006','bibtex')">BibTeX</a>] [<a href="http://iopscience.iop.org/1009-9271/6/S2/38" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Stinebring2006" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Stinebring2006,
+  author = {Stinebring, Daniel R.},
+  title = {Scintillation Arcs: Probing Turbulence and Structure in the ISM},
+  journal = {Chinese Journal of Astronomy and Astrophysics},
+  year = {2006},
+  volume = {6},
+  number = {S2},
+  pages = {204},
+  url = {http://iopscience.iop.org/1009-9271/6/S2/38}
+}
+</pre></td>
+</tr>
+<tr id="Heller2005" class="entry">
+	<td>Heller E (2005), <i>"Freak waves: just bad luck, or avoidable?"</i>, Europhysics News., September, 2005.  Vol. 36(5), pp. 159-162.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Heller2005','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1051/epn:2005504" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Heller2005" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Heller2005,
+  author = {Heller, Eric},
+  title = {Freak waves: just bad luck, or avoidable?},
+  journal = {Europhysics News},
+  year = {2005},
+  volume = {36},
+  number = {5},
+  pages = {159--162},
+  doi = {10.1051/epn:2005504}
+}
+</pre></td>
+</tr>
+<tr id="Wilkinson2005" class="entry">
+	<td>Wilkinson M and Mehlig B (2005), <i>"Caustics in turbulent aerosols"</i>, Europhysics Letters.  Vol. 71(2), pp. 186-192.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Wilkinson2005','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Wilkinson2005" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Wilkinson2005,
+  author = {Wilkinson, M. and Mehlig, B.},
+  title = {Caustics in turbulent aerosols},
+  journal = {Europhysics Letters},
+  year = {2005},
+  volume = {71},
+  number = {2},
+  pages = {186--192}
+}
+</pre></td>
+</tr>
+<tr id="Yano2004" class="entry">
+	<td>Yano T, Koyama H, Buchert T and Gouda N (2004), <i>"Universality in the Distribution of Caustics in the Expanding Universe"</i>, The Astrophysical Journal Supplement Series., April, 2004.  Vol. 151(2), pp. 185.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Yano2004','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1086/381893" target="_blank">DOI</a>] [<a href="http://iopscience.iop.org/article/10.1086/381893/meta" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Yano2004" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Yano2004,
+  author = {Yano, Taihei and Koyama, Hiroko and Buchert, Thomas and Gouda, Naoteru},
+  title = {Universality in the Distribution of Caustics in the Expanding Universe},
+  journal = {The Astrophysical Journal Supplement Series},
+  year = {2004},
+  volume = {151},
+  number = {2},
+  pages = {185},
+  url = {http://iopscience.iop.org/article/10.1086/381893/meta},
+  doi = {10.1086/381893}
+}
+</pre></td>
+</tr>
+<tr id="LeRoy2003" class="entry">
+	<td>LeRoy BJ (2003), <i>"Imaging coherent electron flow"</i>, Journal of Physics Condensed Matter.  Vol. 15(50), pp. 1835-1864.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('LeRoy2003','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_LeRoy2003" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{LeRoy2003,
+  author = {LeRoy, B. J.},
+  title = {Imaging coherent electron flow},
+  journal = {Journal of Physics Condensed Matter},
+  year = {2003},
+  volume = {15},
+  number = {50},
+  pages = {1835--1864}
+}
+</pre></td>
+</tr>
+<tr id="Topinka2003" class="entry">
+	<td>Topinka MA, Westervelt RM and Heller EJ (2003), <i>"Imaging electron flow"</i>, Physics Today., December, 2003.  Vol. 56(12), pp. 47-52.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Topinka2003','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Topinka2003','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1063/1.1650228" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Topinka2003" class="abstract noshow">
+	<td><b>Abstract</b>: New scanning probe techniques provide fascinating glimpses into the detailed behavior of semiconductor devices in the quantum regime.</td>
+</tr>
+<tr id="bib_Topinka2003" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Topinka2003,
+  author = {Topinka, Mark A. and Westervelt, Robert M. and Heller, Eric J.},
+  title = {Imaging electron flow},
+  journal = {Physics Today},
+  year = {2003},
+  volume = {56},
+  number = {12},
+  pages = {47--52},
+  note = {00049},
+  doi = {10.1063/1.1650228}
+}
+</pre></td>
+</tr>
+<tr id="Vanicek2003" class="entry">
+	<td>Vaníček J and Heller EJ (2003), <i>"Uniform semiclassical wave function for coherent two-dimensional electron flow"</i>, Physical Review E., January, 2003.  Vol. 67(1), pp. 016211.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Vanicek2003','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Vanicek2003','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1103/PhysRevE.67.016211" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Vanicek2003" class="abstract noshow">
+	<td><b>Abstract</b>: We find a uniform semiclassical (SC) wave function describing coherent branched flow through a two-dimensional electron gas (2DEG), a phenomenon recently discovered by direct imaging of the current using scanned probed microscopy [M.A. Topinka, B.J. LeRoy, S.E.J. Shaw, E.J. Heller, R.M. Westervelt, K.D. Maranowski, and A.C. Gossard, Science 289, 2323 (2000)]. The formation of branches has been explained by classical arguments [M.A. Topinka, B.J. LeRoy, R.M. Westervelt, S.E.J. Shaw, R. Fleischmann, E.J. Heller, K.D. Maranowski, and A.C. Gossard, Nature (London) 410, 183 (2001)], but the SC simulations necessary to account for the coherence are made difficult by the proliferation of catastrophes in the phase space. In this paper, expansion in terms of “replacement manifolds” is used to find a uniform SC wave function for a cusp singularity. The method is then generalized and applied to calculate uniform wave functions for a quantum-map model of coherent flow through a 2DEG. Finally, the quantum-map approximation is dropped and the method is shown to work for a continuous-time model as well.</td>
+</tr>
+<tr id="bib_Vanicek2003" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Vanicek2003,
+  author = {Vaníček, Jiří and Heller, Eric J.},
+  title = {Uniform semiclassical wave function for coherent two-dimensional electron flow},
+  journal = {Physical Review E},
+  year = {2003},
+  volume = {67},
+  number = {1},
+  pages = {016211},
+  note = {00028},
+  doi = {10.1103/PhysRevE.67.016211}
+}
+</pre></td>
+</tr>
+<tr id="Kaplan2002" class="entry">
+	<td>Kaplan L (2002), <i>"Statistics of Branched Flow in a Weak Correlated Random Potential"</i>, Physical Review Letters., October, 2002.  Vol. 89(18), pp. 184103.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Kaplan2002','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1103/PhysRevLett.89.184103" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Kaplan2002" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Kaplan2002,
+  author = {Kaplan, Lev},
+  title = {Statistics of Branched Flow in a Weak Correlated Random Potential},
+  journal = {Physical Review Letters},
+  year = {2002},
+  volume = {89},
+  number = {18},
+  pages = {184103},
+  doi = {10.1103/PhysRevLett.89.184103}
+}
+</pre></td>
+</tr>
+<tr id="Courbin2002" class="entry">
+	<td> (2002), <i>"Gravitational lensing: an astrophysical tool"</i> Berlin ; New York  Springer.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Courbin2002','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Courbin2002" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{Courbin2002,,
+  editor = {Courbin, F. and Minniti, D.},
+  title = {Gravitational lensing: an astrophysical tool},
+  publisher = {Springer},
+  year = {2002}
+}
+</pre></td>
+</tr>
+<tr id="topinka_coherent_2001" class="entry">
+	<td>Topinka MA, LeRoy BJ, Westervelt RM, Shaw SEJ, Fleischmann R, Heller EJ, Maranowski KD and Gossard AC (2001), <i>"Coherent branched flow in a two-dimensional electron gas"</i>, Nature., March, 2001.  Vol. 410(6825), pp. 183-186.
+	<p class="infolinks">[<a href="javascript:toggleInfo('topinka_coherent_2001','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('topinka_coherent_2001','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1038/35065553" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_topinka_coherent_2001" class="abstract noshow">
+	<td><b>Abstract</b>: Semiconductor nanostructures based on two-dimensional electron gases (2DEGs) could form the basis of future devices for sensing, information processing and quantum computation. Although electron transport in 2DEG nanostructures has been well studied, and many remarkable phenomena have already been discovered (for example, weak localization, quantum chaos, universal conductance fluctuations), fundamental aspects of the electron flow through these structures have so far not been clarified. However, it has recently become possible to image current directly through 2DEG devices using scanning probe microscope techniques. Here, we use such a technique to observe electron flow through a narrow constriction in a 2DEG—a quantum point contact. The images show that the electron flow from the point contact forms narrow, branching strands instead of smoothly spreading fans. Our theoretical study of this flow indicates that this branching of current flux is due to focusing of the electron paths by ripples in the background potential. The strands are decorated by interference fringes separated by half the Fermi wavelength, indicating the persistence of quantum mechanical phase coherence in the electron flow. These findings may have important implications for a better understanding of electron transport in 2DEGs and for the design of future nanostructure devices.</td>
+</tr>
+<tr id="bib_topinka_coherent_2001" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{topinka_coherent_2001,
+  author = {Topinka, M. A. and LeRoy, B. J. and Westervelt, R. M. and Shaw, S. E. J. and Fleischmann, R. and Heller, E. J. and Maranowski, K. D. and Gossard, A. C.},
+  title = {Coherent branched flow in a two-dimensional electron gas},
+  journal = {Nature},
+  year = {2001},
+  volume = {410},
+  number = {6825},
+  pages = {183--186},
+  doi = {10.1038/35065553}
+}
+</pre></td>
+</tr>
+<tr id="Vanicek2001" class="entry">
+	<td>Vaníček J and Heller EJ (2001), <i>"Replacement manifolds: A method to uniformize semiclassical wave functions"</i>, Physical Review E., July, 2001.  Vol. 64(2), pp. 026215.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Vanicek2001','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Vanicek2001','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1103/PhysRevE.64.026215" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Vanicek2001" class="abstract noshow">
+	<td><b>Abstract</b>: We present a semiclassical technique that relies on replacing complicated classical manifold structure with simpler manifolds, which are then evaluated by the usual semiclassical rules. Under circumstances where the original manifold structure gives poor or useless results semiclassically the replacement manifolds can yield remarkable accuracy. We give several working examples to illustrate the theory presented here.</td>
+</tr>
+<tr id="bib_Vanicek2001" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Vanicek2001,
+  author = {Vaníček, Jiří and Heller, Eric J.},
+  title = {Replacement manifolds: A method to uniformize semiclassical wave functions},
+  journal = {Physical Review E},
+  year = {2001},
+  volume = {64},
+  number = {2},
+  pages = {026215},
+  note = {00012},
+  doi = {10.1103/PhysRevE.64.026215}
+}
+</pre></td>
+</tr>
+<tr id="Wolfson2001" class="entry">
+	<td>Wolfson MA and Tomsovic S (2001), <i>"On the stability of long-range sound propagation through a structured ocean"</i>, The Journal of the Acoustical Society of America.  Vol. 109(6), pp. 2693.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Wolfson2001','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1121/1.1362685" target="_blank">DOI</a>] [<a href="http://link.aip.org/link/JASMAN/v109/i6/p2693/s1&Agg=doi" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Wolfson2001" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Wolfson2001,
+  author = {Wolfson, Michael A. and Tomsovic, Steven},
+  title = {On the stability of long-range sound propagation through a structured ocean},
+  journal = {The Journal of the Acoustical Society of America},
+  year = {2001},
+  volume = {109},
+  number = {6},
+  pages = {2693},
+  url = {http://link.aip.org/link/JASMAN/v109/i6/p2693/s1&amp;Agg=doi},
+  doi = {10.1121/1.1362685}
+}
+</pre></td>
+</tr>
+<tr id="Cordes1998" class="entry">
+	<td>Cordes JM and Rickett BJ (1998), <i>"Diffractive interstellar scintillation timescales and velocities"</i>, The Astrophysical Journal.  Vol. 507(2), pp. 846.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Cordes1998','bibtex')">BibTeX</a>] [<a href="http://iopscience.iop.org/article/10.1086/306358/meta" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Cordes1998" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Cordes1998,
+  author = {Cordes, J. M. and Rickett, B. J.},
+  title = {Diffractive interstellar scintillation timescales and velocities},
+  journal = {The Astrophysical Journal},
+  year = {1998},
+  volume = {507},
+  number = {2},
+  pages = {846},
+  url = {http://iopscience.iop.org/article/10.1086/306358/meta}
+}
+</pre></td>
+</tr>
+<tr id="White1998" class="entry">
+	<td>White BS and Fornberg B (1998), <i>"On the chance of freak waves at sea"</i>, Journal of Fluid Mechanics.  Vol. 355, pp. 113-138.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('White1998','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_White1998" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{White1998,
+  author = {White, B. S and Fornberg, B.},
+  title = {On the chance of freak waves at sea},
+  journal = {Journal of Fluid Mechanics},
+  year = {1998},
+  volume = {355},
+  pages = {113--138}
+}
+</pre></td>
+</tr>
+<tr id="Berry1996" class="entry">
+	<td>Berry MV and Klein S (1996), <i>"Colored diffraction catastrophes"</i>, Proceedings of the National Academy of Sciences., March, 1996.  Vol. 93(6), pp. 2614-2619.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Berry1996','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Berry1996','bibtex')">BibTeX</a>] [<a href="http://www.pnas.org/content/93/6/2614" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Berry1996" class="abstract noshow">
+	<td><b>Abstract</b>: On fine scales, caustics produced with white light show vividly colored diffraction fringes. For caustics described by the elementary catastrophes of singularity theory, the colors are characteristic of the type of singularity. We study the diffraction colors of the fold and cusp catastrophes. The colors can be simulated computationally as the superposition of monochromatic patterns for different wavelengths. Far from the caustic, where the luminosity contrast is negligible, the fringe colors persist; an asymptotic theory explains why. Experiments with caustics produced by refraction through irregular bathroom-window glass show good agreement with theory. Colored fringes near the cusp reveal fine lines that are not present in any of the monochromatic components; these lines are explained in terms of partial decoherence between rays with widely differing path differences.</td>
+</tr>
+<tr id="bib_Berry1996" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Berry1996,
+  author = {Berry, M. V. and Klein, S.},
+  title = {Colored diffraction catastrophes},
+  journal = {Proceedings of the National Academy of Sciences},
+  year = {1996},
+  volume = {93},
+  number = {6},
+  pages = {2614--2619},
+  url = {http://www.pnas.org/content/93/6/2614}
+}
+</pre></td>
+</tr>
+<tr id="BlancBenon1995" class="entry">
+	<td>Blanc-Benon P, Juvé D, Ostashev VE and Wandelt R (1995), <i>"On the appearance of caustics for plane sound-wave propagation in moving random media"</i>, Waves in Random media.  Vol. 5(2), pp. 183-200.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('BlancBenon1995','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1088/0959-7174/5/2/003" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_BlancBenon1995" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{BlancBenon1995,
+  author = {Blanc-Benon, Ph and Juvé, D. and Ostashev, V. E. and Wandelt, R.},
+  title = {On the appearance of caustics for plane sound-wave propagation in moving random media},
+  journal = {Waves in Random media},
+  year = {1995},
+  volume = {5},
+  number = {2},
+  pages = {183--200},
+  note = {00024},
+  doi = {10.1088/0959-7174/5/2/003}
+}
+</pre></td>
+</tr>
+<tr id="Klyatskin1993" class="entry">
+	<td>Klyatskin VI (1993), <i>"Caustics in random media"</i>, Waves in Random and Complex Media.  Vol. 3(2), pp. 93-100.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Klyatskin1993','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Klyatskin1993" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Klyatskin1993,
+  author = {Klyatskin, V. I.},
+  title = {Caustics in random media},
+  journal = {Waves in Random and Complex Media},
+  year = {1993},
+  volume = {3},
+  number = {2},
+  pages = {93--100}
+}
+</pre></td>
+</tr>
+<tr id="Kravtsov1993" class="entry">
+	<td>Kravtsov YA and Orlov YI (1993), <i>"Caustics, Catastrophes and Wave Fields"</i> Berlin, Heidelberg  Vol. 15 Springer Berlin Heidelberg.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Kravtsov1993','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1007/978-3-642-97491-5" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Kravtsov1993" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@book{Kravtsov1993,
+  author = {Kravtsov, Yu. A. and Orlov, Yu. I.},
+  editor = {Brekhovskikh, Leonid M. and Felsen, Leopold B. and Haus, Hermann A.},
+  title = {Caustics, Catastrophes and Wave Fields},
+  publisher = {Springer Berlin Heidelberg},
+  year = {1993},
+  volume = {15},
+  doi = {10.1007/978-3-642-97491-5}
+}
+</pre></td>
+</tr>
+<tr id="Narayan1992" class="entry">
+	<td>Narayan R (1992), <i>"The physics of pulsar scintillation"</i>, Philosophical Transactions of the Royal Society of London A: Mathematical, Physical and Engineering Sciences.  Vol. 341(1660), pp. 151-165.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Narayan1992','bibtex')">BibTeX</a>] [<a href="http://rsta.royalsocietypublishing.org/content/341/1660/151.short" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Narayan1992" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Narayan1992,
+  author = {Narayan, Ramesh},
+  title = {The physics of pulsar scintillation},
+  journal = {Philosophical Transactions of the Royal Society of London A: Mathematical, Physical and Engineering Sciences},
+  year = {1992},
+  volume = {341},
+  number = {1660},
+  pages = {151--165},
+  url = {http://rsta.royalsocietypublishing.org/content/341/1660/151.short}
+}
+</pre></td>
+</tr>
+<tr id="BlancBenon1991" class="entry">
+	<td>Blanc-Benon P, Juvé D and Comte-Bellot G (1991), <i>"Occurrence of caustics for high-frequency acoustic waves propagating through turbulent fields"</i>, Theoretical and Computational Fluid Dynamics.  Vol. 2(5-6), pp. 271-278.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('BlancBenon1991','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1007/BF00271467" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_BlancBenon1991" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{BlancBenon1991,
+  author = {Blanc-Benon, Ph and Juvé, D. and Comte-Bellot, G.},
+  title = {Occurrence of caustics for high-frequency acoustic waves propagating through turbulent fields},
+  journal = {Theoretical and Computational Fluid Dynamics},
+  year = {1991},
+  volume = {2},
+  number = {5-6},
+  pages = {271--278},
+  note = {00039},
+  doi = {10.1007/BF00271467}
+}
+</pre></td>
+</tr>
+<tr id="Cordes1986" class="entry">
+	<td>Cordes JM, Pidwerbetsky A and Lovelace RVE (1986), <i>"Refractive and diffractive scattering in the interstellar medium"</i>, The Astrophysical Journal., November, 1986.  Vol. 310, pp. 737-767.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Cordes1986','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Cordes1986','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1086/164728" target="_blank">DOI</a>] [<a href="http://adsabs.harvard.edu/abs/1986ApJ...310..737C" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Cordes1986" class="abstract noshow">
+	<td><b>Abstract</b>: Radio wave propagation through electron-density fluctuations in the ISM is studied. Observable propagation effects are explored using a<br>one-dimensional thin-screen model for the turbulent medium. Diffraction caused by stochastic small-scale irregularities is combined with refraction from deterministic large-scale irregularities. Some of the effects are illustrated with numerical simulations of the wave<br>propagation. Multiple imaging is considered, delineating the possible effects and discussing their extensions to two-dimensional screens and extended three-dimensional media. The case where refraction as well as diffraction is caused by a stochastic medium with a spectrum of a given form is considered. The magnitudes of observable effects is estimated for representative spectra that may be relevant to the ISM. The<br>importance of the various effects for timing and scintillation<br>observations of pulsars, VLBI observations of galactic and extragalactic radio sources, and for variability measurements of extragalactic sources is assessed.</td>
+</tr>
+<tr id="bib_Cordes1986" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Cordes1986,
+  author = {Cordes, J. M. and Pidwerbetsky, A. and Lovelace, R. V. E.},
+  title = {Refractive and diffractive scattering in the interstellar medium},
+  journal = {The Astrophysical Journal},
+  year = {1986},
+  volume = {310},
+  pages = {737--767},
+  url = {http://adsabs.harvard.edu/abs/1986ApJ...310..737C},
+  doi = {10.1086/164728}
+}
+</pre></td>
+</tr>
+<tr id="White1984" class="entry">
+	<td>White BS (1984), <i>"The Stochastic Caustic"</i>  Vol. 44(1), pp. 127-149.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('White1984','bibtex')">BibTeX</a>] [<a href="http://www.jstor.org/stable/2101309" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="bib_White1984" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{White1984,
+  author = {White, B. S},
+  title = {The Stochastic Caustic},
+  year = {1984},
+  volume = {44},
+  number = {1},
+  pages = {127--149},
+  url = {http://www.jstor.org/stable/2101309}
+}
+</pre></td>
+</tr>
+<tr id="Arnold1982" class="entry">
+	<td>Arnold VI, Shandarin SF and Zeldovich YB (1982), <i>"The large scale structure of the universe I. General properties. One-and two-dimensional models"</i>, Geophysical &amp; Astrophysical Fluid Dynamics., April, 1982.  Vol. 20(1-2), pp. 111-130.
+	<p class="infolinks">[<a href="javascript:toggleInfo('Arnold1982','abstract')">Abstract</a>] [<a href="javascript:toggleInfo('Arnold1982','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1080/03091928208209001" target="_blank">DOI</a>] [<a href="https://doi.org/10.1080/03091928208209001" target="_blank">URL</a>]</p>
+	</td>
+</tr>
+<tr id="abs_Arnold1982" class="abstract noshow">
+	<td><b>Abstract</b>: Evolution of initially smooth perturbations in a cold self-gravitating medium in a Friedmann Universe gives rise to the formation of singularities in the distribution of density in a manner similar to that of catastrophe theory. Using the approximate nonlinear theory of gravitational instability the objects formed were found to possess a very oblate shape–a “pancake” (Zeldovich, 1970). This result is shown in this paper to be a general feature of the evolution of so-called Lagrangian systems (Arnold, 1980). Pancakes are one of the several kinds of generic singularity formed at the nonlinear stage of evolution of such a system. Some of the others are a cusp, a beak-to-beak, a swailow-tail. In this paper we present the full list of singularities for the one- and two-dimensional cases (Figures 1-9). The three dimensional singularities will be discussed in Part II of the paper. We discuss the geometrical and some dynamical properties of each kind of singularity. We give also asymptotic laws for the growth of the density near each kind of singularity. This list of singularities gives the elements from which the large scale structure of the Universe is constructed.</td>
+</tr>
+<tr id="bib_Arnold1982" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Arnold1982,
+  author = {Arnold, V. I. and Shandarin, S. F. and Zeldovich, Ya B.},
+  title = {The large scale structure of the universe I. General properties. One-and two-dimensional models},
+  journal = {Geophysical &amp; Astrophysical Fluid Dynamics},
+  year = {1982},
+  volume = {20},
+  number = {1-2},
+  pages = {111--130},
+  url = {https://doi.org/10.1080/03091928208209001},
+  doi = {10.1080/03091928208209001}
+}
+</pre></td>
+</tr>
+<tr id="Kulkarny1982" class="entry">
+	<td>Kulkarny VA and White B (1982), <i>"Focusing of waves in turbulent inhomogeneous media"</i>, Physics of Fluids.  Vol. 25(10), pp. 1770.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Kulkarny1982','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1063/1.863654" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Kulkarny1982" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Kulkarny1982,
+  author = {Kulkarny, V. A. and White, B.S.},
+  title = {Focusing of waves in turbulent inhomogeneous media},
+  journal = {Physics of Fluids},
+  year = {1982},
+  volume = {25},
+  number = {10},
+  pages = {1770},
+  doi = {10.1063/1.863654}
+}
+</pre></td>
+</tr>
+<tr id="Berry1980" class="entry">
+	<td>Berry MV and Upstill C (1980), <i>"Catastrophe optics: morphologies of caustics and their diffraction patterns"</i>, Progress in Optics XVIII. , pp. 257-346.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Berry1980','bibtex')">BibTeX</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Berry1980" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Berry1980,
+  author = {Berry, M. V. and Upstill, C.},
+  title = {Catastrophe optics: morphologies of caustics and their diffraction patterns},
+  journal = {Progress in Optics XVIII},
+  year = {1980},
+  pages = {257--346}
+}
+</pre></td>
+</tr>
+<tr id="Berry1979" class="entry">
+	<td>Berry MV, Nye JF and Wright FJ (1979), <i>"The Elliptic Umbilic Diffraction Catastrophe"</i>, Philosophical Transactions of the Royal Society A: Mathematical, Physical and Engineering Sciences., April, 1979.  Vol. 291(1382), pp. 453-484.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Berry1979','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1098/rsta.1979.0039" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Berry1979" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Berry1979,
+  author = {Berry, M. V. and Nye, J. F. and Wright, F. J.},
+  title = {The Elliptic Umbilic Diffraction Catastrophe},
+  journal = {Philosophical Transactions of the Royal Society A: Mathematical, Physical and Engineering Sciences},
+  year = {1979},
+  volume = {291},
+  number = {1382},
+  pages = {453--484},
+  doi = {10.1098/rsta.1979.0039}
+}
+</pre></td>
+</tr>
+<tr id="Berry1977" class="entry">
+	<td>Berry MV (1977), <i>"Focusing and twinkling: critical exponents from catastrophes in non-Gaussian random short waves"</i>, Journal of Physics A: Mathematical and General., December, 1977.  Vol. 10(12), pp. 2061-2081.
+	<p class="infolinks"> [<a href="javascript:toggleInfo('Berry1977','bibtex')">BibTeX</a>] [<a href="https://doi.org/10.1088/0305-4470/10/12/015" target="_blank">DOI</a>]</p>
+	</td>
+</tr>
+<tr id="bib_Berry1977" class="bibtex noshow">
+<td><b>BibTeX</b>:
+<pre>
+@article{Berry1977,
+  author = {Berry, M V},
+  title = {Focusing and twinkling: critical exponents from catastrophes in non-Gaussian random short waves},
+  journal = {Journal of Physics A: Mathematical and General},
+  year = {1977},
+  volume = {10},
+  number = {12},
+  pages = {2061--2081},
+  doi = {10.1088/0305-4470/10/12/015}
+}
+</pre></td>
+</tr>
+</tbody>
+</table>
+<footer>
+ <small>Created by <a href="http://jabref.sourceforge.net">JabRef</a> on 01/12/2020.</small>
+</footer>
+<!-- file generated by JabRef -->
+</body>
+</html>
